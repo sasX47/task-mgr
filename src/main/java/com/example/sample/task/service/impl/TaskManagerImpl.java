@@ -10,6 +10,7 @@ import com.example.sample.util.GenericUtility;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.StampedLock;
 
 import static com.example.sample.task.constants.Constants.CONCURRENT_RUN_CAPACITY;
 import static com.example.sample.task.constants.State.*;
@@ -35,6 +36,7 @@ public class TaskManagerImpl<T> implements TaskManager<T> {
     private static final AtomicInteger RUNNING_TASKS_COUNT = new AtomicInteger(0);
 
     private final TaskExecutor taskExecutor;
+    private final StampedLock taskExecutorLock = new StampedLock();
 
     public TaskManagerImpl (TaskExecutor taskExecutor) {
         this.taskExecutor = taskExecutor;
@@ -121,9 +123,14 @@ public class TaskManagerImpl<T> implements TaskManager<T> {
         System.out.println("Task " + task.taskUUID() + " is in State " + state.name());
         if (COMPLETED.equals(state)) {
             completedTask.put(task.taskUUID(), runningTask.get(task.taskUUID()).get(10, TimeUnit.SECONDS));
-            runningTask.remove(task.taskUUID());
-            runningTaskGroups.remove(task.taskGroup().groupUUID());
-            RUNNING_TASKS_COUNT.decrementAndGet();
+            long stamp = taskExecutorLock.writeLock();
+            try {
+                runningTask.remove(task.taskUUID());
+                runningTaskGroups.remove(task.taskGroup().groupUUID());
+                RUNNING_TASKS_COUNT.decrementAndGet();
+            } finally {
+                taskExecutorLock.unlockWrite(stamp);
+            }
             System.out.println("Task " + task.taskUUID() + " is Complete with Response " + completedTask.get(task.taskUUID()));
             tryNextTaskExecution();
         }
@@ -132,24 +139,29 @@ public class TaskManagerImpl<T> implements TaskManager<T> {
     /**
      * Tries to execute Task Next in Queue is capacity is not full
      */
-    private synchronized void tryNextTaskExecution() {
+    private void tryNextTaskExecution() {
         // Skip if Capacity is Reached
         if (RUNNING_TASKS_COUNT.get() >= CONCURRENT_RUN_CAPACITY) {
             System.out.println("Execution Capacity is Reached!");
             return;
         }
 
-        // Check if any Task Available from the Queue who's any other task from same Task Group is not Running!
-        if (taskQueue.isEmpty() || runningTaskGroups.contains(taskQueue.peek().taskGroup().groupUUID())) {
-            System.out.println("No Feasible task Found or Queue is Empty!");
-            return;
-        }
+        long stamp = taskExecutorLock.writeLock();
+        try {
+            // Check if any Task Available from the Queue who's any other task from same Task Group is not Running!
+            if (taskQueue.isEmpty() || runningTaskGroups.contains(taskQueue.peek().taskGroup().groupUUID())) {
+                System.out.println("No Feasible task Found or Queue is Empty!");
+                return;
+            }
 
-        // Execute Next Task
-        Task<T> nextPossibleTask = taskQueue.poll();
-        System.out.println("Running New Task : " + nextPossibleTask.taskUUID() + " | New Count : " + RUNNING_TASKS_COUNT.incrementAndGet());
-        runningTaskGroups.add(nextPossibleTask.taskGroup().groupUUID());
-        runningTask.put(nextPossibleTask.taskUUID(), taskExecutor.submitTask(nextPossibleTask));
+            // Execute Next Task
+            Task<T> nextPossibleTask = taskQueue.poll();
+            System.out.println("Running New Task : " + nextPossibleTask.taskUUID() + " | New Count : " + RUNNING_TASKS_COUNT.incrementAndGet());
+            runningTaskGroups.add(nextPossibleTask.taskGroup().groupUUID());
+            runningTask.put(nextPossibleTask.taskUUID(), taskExecutor.submitTask(nextPossibleTask));
+        } finally {
+            taskExecutorLock.unlockWrite(stamp);
+        }
     }
 
 }

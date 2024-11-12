@@ -10,7 +10,6 @@ import com.example.sample.task.service.impl.TaskActionImpl;
 import com.example.sample.task.service.impl.TaskExecutorImpl;
 import com.example.sample.task.service.impl.TaskManagerImpl;
 import com.example.sample.util.GenericUtility;
-import org.springframework.util.StopWatch;
 
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -48,7 +47,7 @@ public class Main {
         TaskExecutor taskExecutor = new TaskExecutorImpl(executorService);
         TaskManager<String> taskManager = new TaskManagerImpl<>(taskExecutor);
 
-        List<Task<String>> taskList = List.of(t11, t21, t22, t12, t23, t31, t42, t33, t44, t41, t32, t43, t34, t45);
+        List<Task<String>> taskList = List.of(t11, t45, t21, t32, t43, t22, t42, t33, t12, t23, t31, t44, t41, t34);
         System.out.println("Task Details");
         taskList.forEach(System.out::println);
 
